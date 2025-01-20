@@ -3,107 +3,125 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CursorWars</title>
+  <title>Multiplayer Cursor Game</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
-      cursor: none;
     }
     canvas {
       display: block;
-    }
-    .player {
-      position: absolute;
-      font-size: 12px;
-      color: white;
-    }
-    .health-bar {
-      width: 50px;
-      height: 5px;
-      background: red;
-      position: absolute;
     }
   </style>
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
   <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const socket = io();
-    let players = {};
-    const self = { x: 200, y: 200 };
+    const socket = io('https://your-vercel-deployment.vercel.app/api/socket'); // Replace with your deployment URL
 
-    // Draw health bar
-    function drawHealthBar(player) {
-      ctx.fillStyle = 'red';
-      ctx.fillRect(player.x - 25, player.y + 20, (player.health / 100) * 50, 5);
-    }
+    const players = {};
+    let selfId;
 
-    // Draw player
-    function drawPlayer(player, id) {
-      ctx.fillStyle = id === socket.id ? 'blue' : 'green';
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'white';
-      ctx.fillText(`Rank: ${player.rank}`, player.x - 20, player.y - 20);
-      drawHealthBar(player);
-    }
-
-    // Game loop
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (const id in players) {
-        drawPlayer(players[id], id);
-      }
-      requestAnimationFrame(draw);
-    }
-
-    // Handle movement
+    // Track mouse position
+    let mouseX = 0, mouseY = 0;
     canvas.addEventListener('mousemove', (e) => {
-      self.x = e.clientX;
-      self.y = e.clientY;
-      socket.emit('move', { x: self.x, y: self.y });
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+
+      socket.emit('move', { x: mouseX, y: mouseY });
     });
 
     // Handle clicks
     canvas.addEventListener('click', (e) => {
-      if (e.target.tagName === 'CANVAS') {
+      if (e.shiftKey) {
+        // Heal
         socket.emit('click', { type: 'heal' });
+      } else {
+        // Attack
+        const targetId = getTargetUnderCursor();
+        if (targetId) {
+          socket.emit('click', { type: 'attack', targetId });
+        }
       }
     });
 
-    // Receive data from server
+    // Get the target player under the cursor
+    function getTargetUnderCursor() {
+      for (const id in players) {
+        const player = players[id];
+        const dist = Math.hypot(player.x - mouseX, player.y - mouseY);
+        if (dist < 20) return id;
+      }
+      return null;
+    }
+
+    // Socket.io events
     socket.on('init', (serverPlayers) => {
-      players = serverPlayers;
+      Object.assign(players, serverPlayers);
     });
 
-    socket.on('new-player', (data) => {
-      players[data.id] = data.data;
+    socket.on('new-player', ({ id, data }) => {
+      players[id] = data;
     });
 
-    socket.on('player-move', (data) => {
-      if (players[data.id]) {
-        players[data.id].x = data.x;
-        players[data.id].y = data.y;
+    socket.on('player-move', ({ id, x, y }) => {
+      if (players[id]) {
+        players[id].x = x;
+        players[id].y = y;
       }
     });
 
-    socket.on('update-health', (data) => {
-      if (players[data.id]) {
-        players[data.id].health = data.health;
+    socket.on('update-health', ({ id, health }) => {
+      if (players[id]) {
+        players[id].health = health;
       }
     });
 
-    socket.on('player-disconnect', (data) => {
-      delete players[data.id];
+    socket.on('player-death', ({ id }) => {
+      if (players[id]) {
+        delete players[id];
+      }
     });
+
+    socket.on('player-disconnect', ({ id }) => {
+      if (players[id]) {
+        delete players[id];
+      }
+    });
+
+    // Draw loop
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw players
+      for (const id in players) {
+        const player = players[id];
+        const isSelf = id === selfId;
+
+        // Draw cursor
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = isSelf ? 'blue' : 'red';
+        ctx.fill();
+
+        // Draw health bar
+        ctx.fillStyle = 'green';
+        ctx.fillRect(player.x - 20, player.y + 15, (player.health / 100) * 40, 5);
+
+        // Draw rank
+        ctx.fillStyle = 'black';
+        ctx.font = '12px Arial';
+        ctx.fillText(`Rank: ${player.rank}`, player.x - 20, player.y - 10);
+      }
+
+      requestAnimationFrame(draw);
+    }
 
     draw();
   </script>
