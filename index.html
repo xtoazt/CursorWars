@@ -1,14 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multiplayer Cursor Game</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
 </head>
 <body>
-  <div id="game"></div>
-  <script src="script.js"></script>
+    <canvas></canvas>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const canvas = document.querySelector('canvas');
+        const ctx = canvas.getContext('2d');
+        const socket = io('https://your-backend.vercel.app/api/game'); // Replace with backend URL
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const players = {};
+        let playerId;
+
+        socket.on('init', ({ id, players: allPlayers }) => {
+            playerId = id;
+            Object.assign(players, allPlayers);
+        });
+
+        socket.on('player-joined', ({ id, player }) => {
+            players[id] = player;
+        });
+
+        socket.on('update-player', ({ id, player }) => {
+            players[id] = player;
+        });
+
+        socket.on('player-left', id => {
+            delete players[id];
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            socket.emit('move', { x: e.clientX, y: e.clientY });
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const targetId = Object.keys(players).find((id) => {
+                const player = players[id];
+                const dx = e.clientX - player.x;
+                const dy = e.clientY - player.y;
+                return dx * dx + dy * dy < 400; // Radius of 20px
+            });
+
+            if (targetId && targetId !== playerId) {
+                socket.emit('attack', targetId);
+            } else {
+                socket.emit('heal');
+            }
+        });
+
+        function drawPlayer(player, isSelf) {
+            ctx.fillStyle = isSelf ? 'green' : 'red';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.closePath();
+
+            ctx.fillStyle = 'black';
+            ctx.fillRect(player.x - 20, player.y + 15, 40, 5);
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(player.x - 20, player.y + 15, player.health * 0.4, 5);
+
+            const rankColor = {
+                Bronze: 'bronze',
+                Silver: 'silver',
+                Gold: 'gold',
+                Ruby: 'red',
+                Sapphire: 'lightblue',
+                Obsidian: 'black',
+                Diamond: 'white',
+            }[player.rank];
+
+            ctx.fillStyle = rankColor;
+            ctx.fillRect(player.x - 5, player.y + 25, 10, 10);
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            Object.keys(players).forEach((id) => {
+                drawPlayer(players[id], id === playerId);
+            });
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
 </body>
 </html>
